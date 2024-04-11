@@ -122,6 +122,27 @@ CREATE TYPE DetallePedidoType AS TABLE
 );
 GO
 
+CREATE TABLE token_usuario(
+id_token INT IDENTITY(1,1) NOT NULL
+, codigo_trabajador varchar(20) not null
+, token_desc VARCHAR(max) NOT NULL
+
+, CONSTRAINT PK_TokenUsr PRIMARY KEY (id_token)
+, CONSTRAINT FK_ToknUsrUsr FOREIGN KEY (codigo_trabajador) REFERENCES usuario(codigo_trabajador)
+);
+GO
+
+CREATE TABLE log_errores(
+id_log INT IDENTITY(1,1)
+, msje_error varchar(max) null
+, data_json varchar(max) null
+, nombre_proc varchar(max) null
+, fecha_erros datetime DEFAULT GETDATE()
+
+, CONSTRAINT PK_LogErrores PRIMARY KEY (id_log)
+);
+GO
+
 
 --insertamos la data pre existente, como los estados de producto y algunos datos necesarios
 
@@ -148,6 +169,61 @@ insert into unidad_medida(id_unidad_medida, descripcion) values('20240410210201'
 insert into unidad_medida(id_unidad_medida, descripcion) values('20240410210202','Six Pack');
 insert into unidad_medida(id_unidad_medida, descripcion) values('20240410210203','Docena');
 GO
+DECLARE @i INT = 1;
+
+WHILE @i <= 50
+BEGIN
+    DECLARE @sku VARCHAR(10) = 'SKU' + CONVERT(VARCHAR(2), @i);
+    DECLARE @nombre VARCHAR(100) = 'Producto ' + CONVERT(VARCHAR(2), @i);
+    DECLARE @id_tipo_producto VARCHAR(20);
+    DECLARE @id_unidad_medida VARCHAR(20);
+    DECLARE @precio DECIMAL(16, 4);
+    DECLARE @etiquetas VARCHAR(MAX) = 'Etiqueta' + CONVERT(VARCHAR(2), @i);
+
+    SET @id_tipo_producto = (SELECT TOP 1 id_tipo_producto FROM tipo_producto ORDER BY NEWID());
+
+    SET @id_unidad_medida = (SELECT TOP 1 id_unidad_medida FROM unidad_medida ORDER BY NEWID());
+
+    SET @precio = ROUND(RAND() * 99 + 1, 4);
+
+    INSERT INTO producto (sku, nombre, id_tipo_producto, etiquetas, precio, id_unidad_medida)
+    VALUES (@sku, @nombre, @id_tipo_producto, @etiquetas, @precio, @id_unidad_medida);
+
+    SET @i = @i + 1;
+END;
+GO
+
+INSERT INTO usuario (codigo_trabajador, nombre, correo, telefono, codigo_puesto, codigo_rol, clave)
+SELECT 
+    'REP' + CONVERT(VARCHAR, RN) AS codigo_trabajador,
+    'Repartidor' + CONVERT(VARCHAR, RN) AS nombre,
+    'repartidor' + CONVERT(VARCHAR, RN) + '@empresa.com' AS correo,
+    '123456789' AS telefono,
+    '202404102056004' AS codigo_puesto, 
+    '202404102055003' AS codigo_rol,
+    'R3P' + CONVERT(VARCHAR, RN)
+FROM (
+    SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS RN
+    FROM sys.objects
+) AS T
+WHERE RN <= 15;
+GO
+
+INSERT INTO usuario (codigo_trabajador, nombre, correo, telefono, codigo_puesto, codigo_rol, clave)
+SELECT 
+    'VEN' + CONVERT(VARCHAR, RN) AS codigo_trabajador,
+    'Vendedor' + CONVERT(VARCHAR, RN) AS nombre,
+    'vendedor' + CONVERT(VARCHAR, RN) + '@empresa.com' AS correo,
+    '123456789' AS telefono,
+    '202404102056002' AS codigo_puesto, 
+    '202404102055002' AS codigo_rol ,
+    'V3N' + CONVERT(VARCHAR, RN)
+FROM (
+    SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS RN
+    FROM sys.objects
+) AS T
+WHERE RN <= 15;
+GO
 
 
 
@@ -166,7 +242,7 @@ CREATE PROCEDURE sp_Crear_Pedido @nro_pedido int, @fecha_pedido datetime, @codig
     , @id_estado_pedido int, @total_pedido decimal(16,4), @ListaDetalle DetallePedidoType READONLY
 AS
 BEGIN  
-    DECLARE @respuesta varchar(max);
+    DECLARE @respuesta INT;
     BEGIN TRANSACTION;
 
     BEGIN TRY
@@ -178,12 +254,17 @@ BEGIN
         SELECT @nro_pedido, nro_item, sku, cantidad, precio_unitario, total_detalle 
         FROM @ListaDetalle;
         COMMIT;
-        set @respuesta = 'Pedido creado con éxito';
+        --set @respuesta = 'Pedido creado con éxito';
+        set @respuesta = 1;
     END TRY  
     BEGIN CATCH 
         ROLLBACK;
         --agregnar un insert en tabla de errores para controlar los errores generados
-        set @respuesta = 'Error creando pedido, det: ' + ERROR_MESSAGE();
+        --set @respuesta = 'Error creando pedido, det: ' + ERROR_MESSAGE();
+        INSERT INTO log_errores(msje_error, nombre_proc)
+        VALUES(ERROR_MESSAGE(), 'sp_Crear_Pedido');
+
+        set @respuesta = 0;
     END CATCH
 
     SELECT @respuesta;
@@ -216,5 +297,31 @@ BEGIN
 END;
 GO
 
+CREATE PROCEDURE SP_GUARDAR_TOKEN_USUARIO @codigo_usuario varchar(20), @token_desc varchar(max)
+AS
+BEGIN
+    DECLARE @cntToken INT = 0
+    SELECT @cntToken = COUNT(1) FROM token_usuario WHERE CODIGO_TRABAJADOR = @codigo_usuario;
+    IF @cntToken > 0
+    
+        UPDATE token_usuario SET token_desc = @token_desc WHERE CODIGO_TRABAJADOR = @codigo_usuario;
+    ELSE
+        INSERT INTO token_usuario(CODIGO_TRABAJADOR, token_desc) VALUES(@codigo_usuario, @token_desc);
 
+    SELECT 'Se grabo el token para el usuario: ' + @codigo_usuario
 
+END;
+GO
+CREATE PROCEDURE SP_VALIDAR_TOKEN_USER @codigo_usuario varchar(20), @token_desc varchar(max)
+AS
+BEGIN
+    DECLARE @cntToken INT = 0
+    SELECT @cntToken = COUNT(1) FROM token_usuario WHERE CODIGO_TRABAJADOR = @codigo_usuario and token_desc = @token_desc;
+    IF @cntToken > 0
+    
+        SELECT 1
+    ELSE
+        SELECT 0
+
+END;
+GO

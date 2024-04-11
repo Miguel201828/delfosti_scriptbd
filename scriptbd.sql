@@ -18,34 +18,6 @@ GO
 USE [DelfostiTrackBD];
 GO
 
-IF OBJECT_ID(N'dbo.detalle_pedido', N'U') IS NOT NULL  
-   DROP TABLE [dbo].[detalle_pedido];  
-GO
-IF OBJECT_ID(N'dbo.pedido', N'U') IS NOT NULL  
-   DROP TABLE [dbo].[pedido];  
-GO
-IF OBJECT_ID(N'dbo.producto', N'U') IS NOT NULL  
-   DROP TABLE [dbo].[producto];  
-GO
-IF OBJECT_ID(N'dbo.unidad_medida', N'U') IS NOT NULL  
-   DROP TABLE [dbo].[unidad_medida];  
-GO
-IF OBJECT_ID(N'dbo.tipo_producto', N'U') IS NOT NULL  
-   DROP TABLE [dbo].[tipo_producto];  
-GO
-IF OBJECT_ID(N'dbo.estado_pedido', N'U') IS NOT NULL  
-   DROP TABLE [dbo].[estado_pedido];  
-GO
-IF OBJECT_ID(N'dbo.usuario', N'U') IS NOT NULL  
-   DROP TABLE [dbo].[usuario];  
-GO
-IF OBJECT_ID(N'dbo.puesto', N'U') IS NOT NULL  
-   DROP TABLE [dbo].[puesto];  
-GO
-IF OBJECT_ID(N'dbo.rol', N'U') IS NOT NULL  
-   DROP TABLE [dbo].[rol];  
-GO
-
 create table rol(
 codigo_rol varchar(20) not null
 , descripcion varchar(100) not null
@@ -64,6 +36,7 @@ create table usuario(
 codigo_trabajador varchar(20) not null
 , nombre varchar(100) not null
 , correo varchar(100) not null
+, clave varchar(100) not null
 , telefono varchar(15) not null
 , codigo_puesto varchar(20) not null
 , codigo_rol varchar(20) not null 
@@ -72,6 +45,8 @@ codigo_trabajador varchar(20) not null
 , CONSTRAINT FK_UsuarioRol FOREIGN KEY (codigo_rol) REFERENCES rol(codigo_rol)
 );
 GO
+
+
 
 create table estado_pedido(
 id_estado int identity(1,1) not null
@@ -94,7 +69,6 @@ id_unidad_medida varchar(20) not null
 );
 GO
 
-
 create table producto(
 sku varchar(10) not null
 , nombre varchar(100) not null
@@ -113,6 +87,7 @@ nro_pedido int identity(1,1) not null
 , fecha_pedido datetime null
 , fecha_recepcion datetime null
 , fecha_despacho datetime null
+, fecha_entrega datetime null
 , codigo_vendedor varchar(20) not null 
 , codigo_repartidor varchar(20) not null
 , id_estado_pedido int not null
@@ -122,6 +97,7 @@ nro_pedido int identity(1,1) not null
 , CONSTRAINT FK_PedRepart FOREIGN KEY (codigo_repartidor) REFERENCES usuario(codigo_trabajador)
 );
 GO
+
 
 create table detalle_pedido(
 nro_pedido int not null
@@ -135,3 +111,110 @@ nro_pedido int not null
 , CONSTRAINT FK_DetPedProd FOREIGN KEY (sku) REFERENCES producto(sku)
 );
 GO
+
+
+CREATE TYPE DetallePedidoType AS TABLE
+( nro_item int
+, sku varchar(10)
+, cantidad int
+, precio_unitario decimal(16,4) 
+, total_detalle decimal(16,4)
+);
+GO
+
+
+--insertamos la data pre existente, como los estados de producto y algunos datos necesarios
+
+insert into rol (codigo_rol, descripcion) values ('202404102055001','Encargado');
+insert into rol (codigo_rol, descripcion) values ('202404102055002','Vendedor');
+insert into rol (codigo_rol, descripcion) values ('202404102055003','Delivery');
+insert into rol (codigo_rol, descripcion) values ('202404102055004','Repartidor');
+go
+insert into puesto (codigo_puesto, descripcion) values ('202404102056001','Supervisor');
+insert into puesto (codigo_puesto, descripcion) values ('202404102056002','Ventas');
+insert into puesto (codigo_puesto, descripcion) values ('202404102056003','Entregas');
+insert into puesto (codigo_puesto, descripcion) values ('202404102056004','Repartidores');
+go
+insert into estado_pedido(descripcion) values('Por atender');
+insert into estado_pedido(descripcion) values('En proceso');
+insert into estado_pedido(descripcion) values('En delivery');
+insert into estado_pedido(descripcion) values('Recibido');
+go
+insert into tipo_producto(id_tipo_producto, descripcion) values ('20240410210101','Botella');
+insert into tipo_producto(id_tipo_producto, descripcion) values ('20240410210102','Frasco');
+insert into tipo_producto(id_tipo_producto, descripcion) values ('20240410210103','Taper');
+GO
+insert into unidad_medida(id_unidad_medida, descripcion) values('20240410210201','Unidad');
+insert into unidad_medida(id_unidad_medida, descripcion) values('20240410210202','Six Pack');
+insert into unidad_medida(id_unidad_medida, descripcion) values('20240410210203','Docena');
+GO
+
+
+
+
+CREATE PROCEDURE sp_login @correo nvarchar(100), @clave nvarchar(100)
+AS
+SELECT us.codigo_trabajador, us.nombre, us.telefono, us.codigo_puesto, us.codigo_rol
+    , P.descripcion as Puesto, R.descripcion as Rol
+FROM usuario us 
+    INNER JOIN rol R on us.codigo_rol = R.codigo_rol
+    INNER JOIN puesto P on us.codigo_puesto = P.codigo_puesto
+WHERE us.correo = @correo AND us.clave = @clave;
+GO
+
+CREATE PROCEDURE sp_Crear_Pedido @nro_pedido int, @fecha_pedido datetime, @codigo_vendedor varchar(20), @codigo_repartidor varchar(20)
+    , @id_estado_pedido int, @total_pedido decimal(16,4), @ListaDetalle DetallePedidoType READONLY
+AS
+BEGIN  
+    DECLARE @respuesta varchar(max);
+    BEGIN TRANSACTION;
+
+    BEGIN TRY
+
+        INSERT INTO pedido(nro_pedido, fecha_pedido, codigo_vendedor, codigo_repartidor, id_estado_pedido)
+        values(@nro_pedido, @fecha_pedido, @codigo_vendedor, @codigo_repartidor, @id_estado_pedido);
+
+        INSERT INTO detalle_pedido(nro_pedido, nro_item, sku, cantidad, precio_unitario, total_detalle)
+        SELECT @nro_pedido, nro_item, sku, cantidad, precio_unitario, total_detalle 
+        FROM @ListaDetalle;
+        COMMIT;
+        set @respuesta = 'Pedido creado con éxito';
+    END TRY  
+    BEGIN CATCH 
+        ROLLBACK;
+        --agregnar un insert en tabla de errores para controlar los errores generados
+        set @respuesta = 'Error creando pedido, det: ' + ERROR_MESSAGE();
+    END CATCH
+
+    SELECT @respuesta;
+END;
+GO
+
+CREATE PROCEDURE SP_CAMBIAR_ESTADO_PEDIDO @nro_pedido int, @fecha datetime, @id_estado_nuevo int
+AS
+BEGIN
+    DECLARE @id_estado_actual INT, @respuesta varchar(max);
+    select @id_estado_actual = id_estado_pedido FROM pedido where nro_pedido = @nro_pedido;
+    set @respuesta = 'no es posible cambiar el estado, el nuevo estado es menor';
+    IF @id_estado_nuevo > @id_estado_actual--puede cambiar de estado
+    BEGIN
+        IF @id_estado_nuevo = 2
+        BEGIN
+            UPDATE pedido SET fecha_recepcion = @fecha, id_estado_pedido = @id_estado_nuevo where nro_pedido = @nro_pedido;
+        END
+        IF @id_estado_nuevo = 3
+        BEGIN
+            UPDATE pedido SET fecha_despacho = @fecha, id_estado_pedido = @id_estado_nuevo where nro_pedido = @nro_pedido;
+        END
+        IF @id_estado_nuevo = 4
+        BEGIN
+            UPDATE pedido SET fecha_entrega = @fecha, id_estado_pedido = @id_estado_nuevo where nro_pedido = @nro_pedido;
+        END
+        set @respuesta = 'Se cambió el estado del Pedido';
+    END
+    select @respuesta ;
+END;
+GO
+
+
+

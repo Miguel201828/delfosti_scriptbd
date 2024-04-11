@@ -46,8 +46,6 @@ codigo_trabajador varchar(20) not null
 );
 GO
 
-
-
 create table estado_pedido(
 id_estado int identity(1,1) not null
 , descripcion varchar(100) not null
@@ -112,16 +110,6 @@ nro_pedido int not null
 );
 GO
 
-
-CREATE TYPE DetallePedidoType AS TABLE
-( nro_item int
-, sku varchar(10)
-, cantidad int
-, precio_unitario decimal(16,4) 
-, total_detalle decimal(16,4)
-);
-GO
-
 CREATE TABLE token_usuario(
 id_token INT IDENTITY(1,1) NOT NULL
 , codigo_trabajador varchar(20) not null
@@ -143,6 +131,14 @@ id_log INT IDENTITY(1,1)
 );
 GO
 
+CREATE TYPE DetallePedidoType AS TABLE
+( nro_item int
+, sku varchar(10)
+, cantidad int
+, precio_unitario decimal(16,4) 
+, total_detalle decimal(16,4)
+);
+GO
 
 --insertamos la data pre existente, como los estados de producto y algunos datos necesarios
 
